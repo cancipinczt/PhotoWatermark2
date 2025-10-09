@@ -11,9 +11,9 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QPushButton, QListWidget, QListWidgetItem, QLabel, 
                             QFileDialog, QMessageBox, QProgressBar, QSplitter,
                             QFrame, QScrollArea, QComboBox, QSpinBox, QSlider, 
-                            QLineEdit, QGroupBox, QCheckBox)
+                            QLineEdit, QGroupBox, QCheckBox, QColorDialog)  # 添加QColorDialog导入
 from PyQt5.QtCore import Qt, pyqtSlot, QMimeData
-from PyQt5.QtGui import QPixmap, QFont, QIcon, QDragEnterEvent, QDropEvent, QDragMoveEvent  # 添加QDragMoveEvent导入
+from PyQt5.QtGui import QPixmap, QFont, QIcon, QDragEnterEvent, QDropEvent, QDragMoveEvent, QColor  # 添加QColor导入
 
 from core.image_manager import ImageManager
 
@@ -245,7 +245,11 @@ class MainWindow(QMainWindow):
         
         layout.addWidget(info_frame)
         
-        # 导出设置区域
+        # 添加文本水印设置面板（调整到上方）
+        watermark_group = self.create_watermark_settings()
+        layout.addWidget(watermark_group)
+        
+        # 导出设置区域（调整到下方）
         export_group = QGroupBox("导出设置")
         export_layout = QVBoxLayout(export_group)
         
@@ -359,6 +363,10 @@ class MainWindow(QMainWindow):
         export_layout.addLayout(export_buttons_layout)
         
         layout.addWidget(export_group)
+        
+        # 添加文本水印设置面板
+        # watermark_group = self.create_watermark_settings()
+        # layout.addWidget(watermark_group)
         
         # 连接信号
         self.quality_slider.valueChanged.connect(self.on_quality_changed)
@@ -570,7 +578,6 @@ class MainWindow(QMainWindow):
                 success_count += 1
             else:
                 fail_count += 1
-        
         # 显示结果
         if fail_count == 0:
             self.status_label.setText(f"成功导入 {success_count} 张图片")
@@ -597,30 +604,334 @@ class MainWindow(QMainWindow):
 
     def on_resize_option_changed(self):
         """缩放选项改变"""
-        # 确保只有一个缩放选项被选中
+        # 启用/禁用对应的输入框
+        self.resize_width_spin.setEnabled(self.resize_width_check.isChecked())
+        self.resize_height_spin.setEnabled(self.resize_height_check.isChecked())
+        self.resize_percent_spin.setEnabled(self.resize_percent_check.isChecked())
+
+        # 确保只有一个选项被选中
         if self.resize_width_check.isChecked():
             self.resize_height_check.setChecked(False)
             self.resize_percent_check.setChecked(False)
-            self.resize_width_spin.setEnabled(True)
-            self.resize_height_spin.setEnabled(False)
-            self.resize_percent_spin.setEnabled(False)
         elif self.resize_height_check.isChecked():
             self.resize_width_check.setChecked(False)
             self.resize_percent_check.setChecked(False)
-            self.resize_width_spin.setEnabled(False)
-            self.resize_height_spin.setEnabled(True)
-            self.resize_percent_spin.setEnabled(False)
         elif self.resize_percent_check.isChecked():
             self.resize_width_check.setChecked(False)
             self.resize_height_check.setChecked(False)
-            self.resize_width_spin.setEnabled(False)
-            self.resize_height_spin.setEnabled(False)
-            self.resize_percent_spin.setEnabled(True)
+
+    def create_watermark_settings(self):        
+        # 文本水印设置面板
+        watermark_group = QGroupBox("文本水印设置")
+        watermark_layout = QVBoxLayout(watermark_group)
+        
+        # 水印启用开关
+        self.watermark_enabled = QCheckBox("启用文本水印")
+        self.watermark_enabled.stateChanged.connect(self.on_watermark_enabled_changed)
+        watermark_layout.addWidget(self.watermark_enabled)
+        
+        # 基础设置面板
+        basic_settings_group = QGroupBox("基础设置")
+        basic_layout = QVBoxLayout(basic_settings_group)
+        
+        # 文本内容
+        text_layout = QHBoxLayout()
+        text_layout.addWidget(QLabel("水印文本:"))
+        self.watermark_text = QLineEdit()
+        self.watermark_text.setPlaceholderText("请输入水印文本内容")
+        self.watermark_text.textChanged.connect(self.on_watermark_text_changed)
+        text_layout.addWidget(self.watermark_text)
+        basic_layout.addLayout(text_layout)
+        
+        # 位置选择
+        position_layout = QHBoxLayout()
+        position_layout.addWidget(QLabel("水印位置:"))
+        self.watermark_position = QComboBox()
+        self.watermark_position.addItems([
+            '左上角', '右上角', '左下角', '右下角', 
+            '正中心', '顶部居中', '底部居中', '左侧居中', '右侧居中'
+        ])
+        self.watermark_position.setCurrentText('右下角')
+        self.watermark_position.currentTextChanged.connect(self.on_watermark_position_changed)
+        position_layout.addWidget(self.watermark_position)
+        position_layout.addStretch()
+        basic_layout.addLayout(position_layout)
+        
+        # 透明度调节
+        opacity_layout = QHBoxLayout()
+        opacity_layout.addWidget(QLabel("透明度:"))
+        self.watermark_opacity = QSlider(Qt.Horizontal)
+        self.watermark_opacity.setRange(0, 100)
+        self.watermark_opacity.setValue(50)
+        self.watermark_opacity.valueChanged.connect(self.on_watermark_opacity_changed)
+        opacity_layout.addWidget(self.watermark_opacity)
+        
+        self.opacity_label = QLabel("50%")
+        self.opacity_label.setMinimumWidth(30)
+        opacity_layout.addWidget(self.opacity_label)
+        basic_layout.addLayout(opacity_layout)
+        
+        watermark_layout.addWidget(basic_settings_group)
+        
+        # 高级设置面板（可折叠）
+        self.advanced_settings_group = QGroupBox("高级设置")
+        self.advanced_settings_group.setCheckable(True)
+        self.advanced_settings_group.setChecked(False)
+        advanced_layout = QVBoxLayout(self.advanced_settings_group)
+        
+        # 字体选择
+        font_layout = QHBoxLayout()
+        font_layout.addWidget(QLabel("字体:"))
+        self.watermark_font = QComboBox()
+        self.watermark_font.addItems(['Arial', 'Times New Roman', 'SimHei', 'Microsoft YaHei', 'SimSun'])
+        self.watermark_font.setCurrentText('Arial')
+        self.watermark_font.currentTextChanged.connect(self.on_watermark_font_changed)
+        font_layout.addWidget(self.watermark_font)
+        font_layout.addStretch()
+        advanced_layout.addLayout(font_layout)
+        
+        # 字号设置
+        font_size_layout = QHBoxLayout()
+        font_size_layout.addWidget(QLabel("字号:"))
+        self.watermark_font_size = QSpinBox()
+        self.watermark_font_size.setRange(8, 72)
+        self.watermark_font_size.setValue(24)
+        self.watermark_font_size.valueChanged.connect(self.on_watermark_font_size_changed)
+        font_size_layout.addWidget(self.watermark_font_size)
+        font_size_layout.addWidget(QLabel("像素"))
+        font_size_layout.addStretch()
+        advanced_layout.addLayout(font_size_layout)
+        
+        # 字体样式
+        style_layout = QHBoxLayout()
+        self.watermark_bold = QCheckBox("粗体")
+        self.watermark_bold.stateChanged.connect(self.on_watermark_style_changed)
+        style_layout.addWidget(self.watermark_bold)
+        
+        self.watermark_italic = QCheckBox("斜体")
+        self.watermark_italic.stateChanged.connect(self.on_watermark_style_changed)
+        style_layout.addWidget(self.watermark_italic)
+        style_layout.addStretch()
+        advanced_layout.addLayout(style_layout)
+        
+        # 颜色选择 - 修改为调色板
+        color_layout = QHBoxLayout()
+        color_layout.addWidget(QLabel("颜色:"))
+        
+        # 颜色预览按钮
+        self.watermark_color_button = QPushButton()
+        self.watermark_color_button.setFixedSize(30, 30)
+        self.watermark_color_button.setStyleSheet("background-color: white; border: 1px solid gray;")
+        self.watermark_color_button.clicked.connect(self.on_color_button_clicked)
+        
+        # 颜色值显示
+        self.watermark_color_label = QLabel("白色")
+        self.watermark_color_label.setMinimumWidth(60)
+        
+        color_layout.addWidget(self.watermark_color_button)
+        color_layout.addWidget(self.watermark_color_label)
+        color_layout.addStretch()
+        advanced_layout.addLayout(color_layout)
+        
+        # 效果设置
+        effect_layout = QHBoxLayout()
+        self.watermark_shadow = QCheckBox("阴影效果")
+        self.watermark_shadow.stateChanged.connect(self.on_watermark_effect_changed)
+        effect_layout.addWidget(self.watermark_shadow)
+        
+        self.watermark_stroke = QCheckBox("描边效果")
+        self.watermark_stroke.stateChanged.connect(self.on_watermark_effect_changed)
+        effect_layout.addWidget(self.watermark_stroke)
+        effect_layout.addStretch()
+        advanced_layout.addLayout(effect_layout)
+        
+        watermark_layout.addWidget(self.advanced_settings_group)
+        
+        # 删除错误的layout.addWidget(watermark_group)调用
+        # layout.addWidget(watermark_group)
+        
+        # 连接信号
+        # self.quality_slider.valueChanged.connect(self.on_quality_changed)
+        
+        return watermark_group
+
+    def set_watermark_controls_enabled(self, enabled):
+        """设置水印控件启用状态"""
+        self.watermark_text.setEnabled(enabled)
+        self.watermark_position.setEnabled(enabled)
+        self.watermark_opacity.setEnabled(enabled)
+        self.watermark_font.setEnabled(enabled)
+        self.watermark_font_size.setEnabled(enabled)
+        self.watermark_bold.setEnabled(enabled)
+        self.watermark_italic.setEnabled(enabled)
+        # 修复：将watermark_color改为watermark_color_button和watermark_color_label
+        self.watermark_color_button.setEnabled(enabled)
+        self.watermark_color_label.setEnabled(enabled)
+        self.watermark_shadow.setEnabled(enabled)
+        self.watermark_stroke.setEnabled(enabled)
+        self.advanced_settings_group.setEnabled(enabled)
+
+    def on_watermark_enabled_changed(self, state):
+        """水印启用状态改变"""
+        enabled = state == Qt.Checked
+        self.set_watermark_controls_enabled(enabled)
+
+    def on_watermark_text_changed(self, text):
+        """水印文本改变"""
+        pass
+
+    def on_watermark_position_changed(self, position):
+        """水印位置改变"""
+        pass
+
+    def on_watermark_opacity_changed(self, value):
+        """水印透明度改变"""
+        self.opacity_label.setText(f"{value}%")
+
+    def on_watermark_font_changed(self, font):
+        """水印字体改变"""
+        pass
+
+    def on_watermark_font_size_changed(self, size):
+        """水印字号改变"""
+        pass
+
+    def on_watermark_style_changed(self):
+        """水印样式改变"""
+        pass
+
+    def on_watermark_effect_changed(self):
+        """水印效果改变"""
+        pass
+
+    def on_color_button_clicked(self):
+        """颜色按钮点击事件 - 打开调色板"""
+        # 获取当前颜色
+        current_color_name = self.watermark_color_label.text()
+        color_map = {
+            '白色': QColor(255, 255, 255),
+            '黑色': QColor(0, 0, 0),
+            '红色': QColor(255, 0, 0),
+            '蓝色': QColor(0, 0, 255),
+            '绿色': QColor(0, 255, 0),
+            '黄色': QColor(255, 255, 0)
+        }
+        
+        # 设置默认颜色
+        initial_color = color_map.get(current_color_name, QColor(255, 255, 255))
+        
+        # 打开调色板对话框
+        color = QColorDialog.getColor(initial_color, self, "选择水印颜色")
+        
+        if color.isValid():
+            # 更新颜色预览按钮
+            self.watermark_color_button.setStyleSheet(f"background-color: {color.name()}; border: 1px solid gray;")
+            
+            # 更新颜色标签
+            color_name = self.get_color_name(color)
+            self.watermark_color_label.setText(color_name)
+            
+            # 触发颜色改变事件
+            self.on_watermark_color_changed(color_name)
+
+    def get_color_name(self, color):
+        """根据颜色值获取颜色名称"""
+        color_map = {
+            (255, 255, 255): '白色',
+            (0, 0, 0): '黑色',
+            (255, 0, 0): '红色',
+            (0, 0, 255): '蓝色',
+            (0, 255, 0): '绿色',
+            (255, 255, 0): '黄色'
+        }
+        
+        rgb = (color.red(), color.green(), color.blue())
+        return color_map.get(rgb, f"RGB({rgb[0]},{rgb[1]},{rgb[2]})")
+
+    def on_watermark_color_changed(self, color_name):
+        """水印颜色改变"""
+        # 直接从按钮样式表中提取颜色值，而不是依赖颜色名称映射
+        button_style = self.watermark_color_button.styleSheet()
+        import re
+        match = re.search(r'background-color:\s*([^;]+);', button_style)
+        
+        if match:
+            color_str = match.group(1)
+            # 直接使用按钮的样式表颜色，确保颜色一致
+            self.watermark_color_button.setStyleSheet(f"background-color: {color_str}; border: 1px solid gray;")
         else:
-            # 没有选中任何选项
-            self.resize_width_spin.setEnabled(False)
-            self.resize_height_spin.setEnabled(False)
-            self.resize_percent_spin.setEnabled(False)
+            # 如果无法提取颜色，使用默认白色
+            self.watermark_color_button.setStyleSheet("background-color: white; border: 1px solid gray;")
+        
+        # 更新颜色标签显示
+        self.watermark_color_label.setText(color_name)
+
+    def get_watermark_settings(self):
+        """获取水印设置"""
+        # 直接从按钮样式表中提取颜色值，确保颜色准确
+        button_style = self.watermark_color_button.styleSheet()
+        import re
+        match = re.search(r'background-color:\s*([^;]+);', button_style)
+        
+        if match:
+            color_str = match.group(1)
+            if color_str.startswith('#'):
+                # 十六进制颜色
+                color = QColor(color_str)
+                color_rgb = (color.red(), color.green(), color.blue())
+            elif color_str.startswith('rgb'):
+                # RGB颜色
+                rgb_match = re.search(r'rgb\((\d+),\s*(\d+),\s*(\d+)\)', color_str)
+                if rgb_match:
+                    color_rgb = (int(rgb_match.group(1)), int(rgb_match.group(2)), int(rgb_match.group(3)))
+                else:
+                    color_rgb = (255, 255, 255)
+            else:
+                # 颜色名称
+                color_map = {
+                    'white': (255, 255, 255),
+                    'black': (0, 0, 0),
+                    'red': (255, 0, 0),
+                    'blue': (0, 0, 255),
+                    'green': (0, 255, 0),
+                    'yellow': (255, 255, 0)
+                }
+                color_rgb = color_map.get(color_str.lower(), (255, 255, 255))
+        else:
+            color_rgb = (255, 255, 255)
+        
+        return {
+            'enabled': self.watermark_enabled.isChecked(),
+            'text': self.watermark_text.text().strip(),
+            'position': self.watermark_position.currentText(),
+            'opacity': self.watermark_opacity.value(),
+            'font': self.watermark_font.currentText(),
+            'font_size': self.watermark_font_size.value(),
+            'bold': self.watermark_bold.isChecked(),
+            'italic': self.watermark_italic.isChecked(),
+            'color': color_rgb,  # 返回RGB元组
+            'shadow': self.watermark_shadow.isChecked(),
+            'stroke': self.watermark_stroke.isChecked()
+        }
+
+    def extract_color_from_style(self, style_sheet):
+        """从样式表中提取颜色值"""
+        import re
+        match = re.search(r'background-color:\s*([^;]+);', style_sheet)
+        if match:
+            color_str = match.group(1)
+            if color_str.startswith('#'):
+                # 十六进制颜色
+                color = QColor(color_str)
+                return (color.red(), color.green(), color.blue())
+            elif color_str.startswith('rgb'):
+                # RGB颜色
+                rgb_match = re.search(r'rgb\((\d+),\s*(\d+),\s*(\d+)\)', color_str)
+                if rgb_match:
+                    return (int(rgb_match.group(1)), int(rgb_match.group(2)), int(rgb_match.group(3)))
+        
+        # 默认颜色
+        return (255, 255, 255) if 'white' in style_sheet else (0, 0, 0)
 
     def export_single_image(self):
         """导出单张图片"""
@@ -660,11 +971,27 @@ class MainWindow(QMainWindow):
         elif self.resize_percent_check.isChecked():
             resize_percent = self.resize_percent_spin.value()
         
-        # 导出图片
-        success, result = self.image_manager.export_single_image(
-            file_path, output_dir, output_format, quality, prefix, suffix,
-            resize_width, resize_height, resize_percent
-        )
+        # 获取水印设置
+        watermark_settings = self.get_watermark_settings()
+        
+        # 根据水印启用状态选择导出方法
+        if watermark_settings['enabled']:
+            # 导出带水印的图片
+            success, result = self.image_manager.export_single_image_with_watermark(
+                file_path, output_dir, output_format, quality, prefix, suffix,
+                resize_width, resize_height, resize_percent,
+                watermark_settings['text'], watermark_settings['position'],
+                watermark_settings['opacity'], watermark_settings['font'],
+                watermark_settings['font_size'], watermark_settings['bold'],
+                watermark_settings['italic'], watermark_settings['color'],
+                watermark_settings['shadow'], watermark_settings['stroke']
+            )
+        else:
+            # 导出普通图片
+            success, result = self.image_manager.export_single_image(
+                file_path, output_dir, output_format, quality, prefix, suffix,
+                resize_width, resize_height, resize_percent
+            )
         
         if success:
             QMessageBox.information(self, "导出成功", f"图片已成功导出到:\n{result}")
@@ -708,14 +1035,30 @@ class MainWindow(QMainWindow):
         elif self.resize_percent_check.isChecked():
             resize_percent = self.resize_percent_spin.value()
         
+        # 获取水印设置
+        watermark_settings = self.get_watermark_settings()
+        
         # 获取所有图片路径
         file_paths = [img['file_path'] for img in self.image_manager.images]
         
-        # 批量导出
-        success_count, fail_count, results = self.image_manager.export_multiple_images(
-            file_paths, output_dir, output_format, quality, prefix, suffix,
-            resize_width, resize_height, resize_percent
-        )
+        # 根据水印启用状态选择导出方法
+        if watermark_settings['enabled']:
+            # 批量导出带水印的图片
+            success_count, fail_count, results = self.image_manager.export_multiple_images_with_watermark(
+                file_paths, output_dir, output_format, quality, prefix, suffix,
+                resize_width, resize_height, resize_percent,
+                watermark_settings['text'], watermark_settings['position'],
+                watermark_settings['opacity'], watermark_settings['font'],
+                watermark_settings['font_size'], watermark_settings['bold'],
+                watermark_settings['italic'], watermark_settings['color'],
+                watermark_settings['shadow'], watermark_settings['stroke']
+            )
+        else:
+            # 批量导出普通图片
+            success_count, fail_count, results = self.image_manager.export_multiple_images(
+                file_paths, output_dir, output_format, quality, prefix, suffix,
+                resize_width, resize_height, resize_percent
+            )
         
         # 显示结果
         if fail_count == 0:

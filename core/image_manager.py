@@ -314,3 +314,143 @@ class ImageManager(QObject):
         self.progress_updated.emit(100, f"导出完成: 成功 {success_count} 张，失败 {fail_count} 张")
         
         return success_count, fail_count, results
+
+    def export_single_image_with_watermark(self, file_path, output_dir, output_format='JPEG', 
+                                        quality=95, prefix='', suffix='_watermarked',
+                                        resize_width=None, resize_height=None, resize_percent=None,
+                                        text='', position='右下角', opacity=50, font='Arial', 
+                                        font_size=24, bold=False, italic=False, color='白色',
+                                        shadow=False, stroke=False):
+        """
+        导出带文本水印的单张图片
+        
+        Args:
+            file_path: 原图片文件路径
+            output_dir: 输出目录
+            output_format: 输出格式
+            quality: JPEG质量
+            prefix: 文件名前缀
+            suffix: 文件名后缀
+            resize_width: 缩放宽度
+            resize_height: 缩放高度
+            resize_percent: 缩放百分比
+            text: 水印文本内容
+            position: 水印位置
+            opacity: 透明度
+            font: 字体名称
+            font_size: 字号
+            bold: 是否粗体
+            italic: 是否斜体
+            color: 颜色名称
+            shadow: 是否启用阴影
+            stroke: 是否启用描边
+            
+        Returns:
+            tuple: (是否成功, 输出文件路径或错误信息)
+        """
+        try:
+            # 获取图片信息
+            img_info = self.get_image_by_path(file_path)
+            if not img_info:
+                return False, "图片不在列表中"
+            
+            # 检查输出目录是否与原目录相同
+            if os.path.abspath(output_dir) == os.path.abspath(os.path.dirname(file_path)):
+                return False, "禁止导出到原文件夹"
+            
+            # 生成输出文件名
+            output_filename = self.image_processor.generate_output_filename(
+                img_info['file_name'], prefix, suffix, output_format
+            )
+            output_path = os.path.join(output_dir, output_filename)
+            
+            # 导出带水印的图片
+            if 'image_object' in img_info:
+                success = self.image_processor.export_image_with_watermark(
+                    img_info['image_object'], output_path, output_format, quality,
+                    resize_width, resize_height, resize_percent,
+                    text, position, opacity, font, font_size, bold, italic, color,
+                    shadow, stroke
+                )
+            else:
+                # 如果图像对象不存在，重新加载图片
+                success, image = self.image_processor.load_image(file_path)
+                if success:
+                    success = self.image_processor.export_image_with_watermark(
+                        image, output_path, output_format, quality,
+                        resize_width, resize_height, resize_percent,
+                        text, position, opacity, font, font_size, bold, italic, color,
+                        shadow, stroke
+                    )
+                    image.close()
+                else:
+                    return False, "无法加载图片"
+            
+            return success, output_path if success else "导出失败"
+            
+        except Exception as e:
+            self.logger.error(f"导出带水印单张图片失败 {file_path}: {str(e)}")
+            return False, str(e)
+
+    def export_multiple_images_with_watermark(self, file_paths, output_dir, output_format='JPEG', 
+                                            quality=95, prefix='', suffix='_watermarked',
+                                            resize_width=None, resize_height=None, resize_percent=None,
+                                            text='', position='右下角', opacity=50, font='Arial', 
+                                            font_size=24, bold=False, italic=False, color='白色',
+                                            shadow=False, stroke=False):
+        """
+        批量导出带文本水印的图片
+        
+        Args:
+            file_paths: 图片文件路径列表
+            output_dir: 输出目录
+            output_format: 输出格式
+            quality: JPEG质量
+            prefix: 文件名前缀
+            suffix: 文件名后缀
+            resize_width: 缩放宽度
+            resize_height: 缩放高度
+            resize_percent: 缩放百分比
+            text: 水印文本内容
+            position: 水印位置
+            opacity: 透明度
+            font: 字体名称
+            font_size: 字号
+            bold: 是否粗体
+            italic: 是否斜体
+            color: 颜色名称
+            shadow: 是否启用阴影
+            stroke: 是否启用描边
+            
+        Returns:
+            tuple: (成功数量, 失败数量, 详细结果列表)
+        """
+        success_count = 0
+        fail_count = 0
+        results = []
+        
+        total = len(file_paths)
+        for i, file_path in enumerate(file_paths):
+            # 更新进度
+            progress = int((i / total) * 100)
+            self.progress_updated.emit(progress, f"正在导出带水印图片 {i+1}/{total}")
+            
+            # 导出带水印的单张图片
+            success, result = self.export_single_image_with_watermark(
+                file_path, output_dir, output_format, quality, prefix, suffix,
+                resize_width, resize_height, resize_percent,
+                text, position, opacity, font, font_size, bold, italic, color,
+                shadow, stroke
+            )
+            
+            if success:
+                success_count += 1
+                results.append((file_path, result, "成功"))
+            else:
+                fail_count += 1
+                results.append((file_path, None, result))
+        
+        # 完成进度
+        self.progress_updated.emit(100, f"带水印导出完成: 成功 {success_count} 张，失败 {fail_count} 张")
+        
+        return success_count, fail_count, results
