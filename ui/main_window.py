@@ -10,7 +10,8 @@ import os
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                             QPushButton, QListWidget, QListWidgetItem, QLabel, 
                             QFileDialog, QMessageBox, QProgressBar, QSplitter,
-                            QFrame, QScrollArea)
+                            QFrame, QScrollArea, QComboBox, QSpinBox, QSlider, 
+                            QLineEdit, QGroupBox, QCheckBox)
 from PyQt5.QtCore import Qt, pyqtSlot, QMimeData
 from PyQt5.QtGui import QPixmap, QFont, QIcon, QDragEnterEvent, QDropEvent, QDragMoveEvent  # 添加QDragMoveEvent导入
 
@@ -244,6 +245,124 @@ class MainWindow(QMainWindow):
         
         layout.addWidget(info_frame)
         
+        # 导出设置区域
+        export_group = QGroupBox("导出设置")
+        export_layout = QVBoxLayout(export_group)
+        
+        # 输出格式选择
+        format_layout = QHBoxLayout()
+        format_layout.addWidget(QLabel("输出格式:"))
+        self.format_combo = QComboBox()
+        self.format_combo.addItems(["JPEG", "PNG"])
+        self.format_combo.setCurrentText("JPEG")
+        format_layout.addWidget(self.format_combo)
+        format_layout.addStretch()
+        export_layout.addLayout(format_layout)
+        
+        # 文件命名规则
+        naming_layout = QHBoxLayout()
+        naming_layout.addWidget(QLabel("文件名前缀:"))
+        self.prefix_edit = QLineEdit()
+        self.prefix_edit.setPlaceholderText("例如: wm_")
+        self.prefix_edit.setMaximumWidth(100)
+        naming_layout.addWidget(self.prefix_edit)
+        
+        naming_layout.addWidget(QLabel("后缀:"))
+        self.suffix_edit = QLineEdit()
+        self.suffix_edit.setPlaceholderText("例如: _watermarked")
+        self.suffix_edit.setMaximumWidth(100)
+        naming_layout.addWidget(self.suffix_edit)
+        naming_layout.addStretch()
+        export_layout.addLayout(naming_layout)
+        
+        # JPEG质量设置
+        quality_layout = QHBoxLayout()
+        quality_layout.addWidget(QLabel("JPEG质量:"))
+        self.quality_slider = QSlider(Qt.Horizontal)
+        self.quality_slider.setRange(0, 100)
+        self.quality_slider.setValue(95)
+        self.quality_slider.setTickPosition(QSlider.TicksBelow)
+        self.quality_slider.setTickInterval(10)
+        quality_layout.addWidget(self.quality_slider)
+        
+        self.quality_label = QLabel("95")
+        self.quality_label.setMinimumWidth(30)
+        quality_layout.addWidget(self.quality_label)
+        export_layout.addLayout(quality_layout)
+        
+        # 图片缩放选项
+        resize_group = QGroupBox("图片缩放 (可选)")
+        resize_layout = QVBoxLayout(resize_group)
+        
+        # 宽度缩放
+        width_layout = QHBoxLayout()
+        self.resize_width_check = QCheckBox("按宽度缩放:")
+        self.resize_width_check.stateChanged.connect(self.on_resize_option_changed)
+        width_layout.addWidget(self.resize_width_check)
+        
+        self.resize_width_spin = QSpinBox()
+        self.resize_width_spin.setRange(1, 10000)
+        self.resize_width_spin.setValue(800)
+        self.resize_width_spin.setEnabled(False)
+        width_layout.addWidget(self.resize_width_spin)
+        width_layout.addWidget(QLabel("像素"))
+        width_layout.addStretch()
+        resize_layout.addLayout(width_layout)
+        
+        # 高度缩放
+        height_layout = QHBoxLayout()
+        self.resize_height_check = QCheckBox("按高度缩放:")
+        self.resize_height_check.stateChanged.connect(self.on_resize_option_changed)
+        height_layout.addWidget(self.resize_height_check)
+        
+        self.resize_height_spin = QSpinBox()
+        self.resize_height_spin.setRange(1, 10000)
+        self.resize_height_spin.setValue(600)
+        self.resize_height_spin.setEnabled(False)
+        height_layout.addWidget(self.resize_height_spin)
+        height_layout.addWidget(QLabel("像素"))
+        height_layout.addStretch()
+        resize_layout.addLayout(height_layout)
+        
+        # 百分比缩放
+        percent_layout = QHBoxLayout()
+        self.resize_percent_check = QCheckBox("按百分比缩放:")
+        self.resize_percent_check.stateChanged.connect(self.on_resize_option_changed)
+        percent_layout.addWidget(self.resize_percent_check)
+        
+        self.resize_percent_spin = QSpinBox()
+        self.resize_percent_spin.setRange(1, 500)
+        self.resize_percent_spin.setValue(100)
+        self.resize_percent_spin.setEnabled(False)
+        self.resize_percent_spin.setSuffix("%")
+        percent_layout.addWidget(self.resize_percent_spin)
+        percent_layout.addStretch()
+        resize_layout.addLayout(percent_layout)
+        
+        export_layout.addWidget(resize_group)
+        
+        # 导出按钮
+        export_buttons_layout = QHBoxLayout()
+        
+        self.export_single_btn = QPushButton("导出当前图片")
+        self.export_single_btn.setToolTip("导出当前选中的图片")
+        self.export_single_btn.clicked.connect(self.export_single_image)
+        self.export_single_btn.setEnabled(False)  # 初始禁用
+        
+        self.export_all_btn = QPushButton("导出所有图片")
+        self.export_all_btn.setToolTip("导出列表中的所有图片")
+        self.export_all_btn.clicked.connect(self.export_all_images)
+        self.export_all_btn.setEnabled(False)  # 初始禁用
+        
+        export_buttons_layout.addWidget(self.export_single_btn)
+        export_buttons_layout.addWidget(self.export_all_btn)
+        export_layout.addLayout(export_buttons_layout)
+        
+        layout.addWidget(export_group)
+        
+        # 连接信号
+        self.quality_slider.valueChanged.connect(self.on_quality_changed)
+        
         return right_widget
     
     def connect_signals(self):
@@ -270,6 +389,14 @@ class MainWindow(QMainWindow):
         
         # 更新状态
         self.status_label.setText(f"已加载 {len(images)} 张图片")
+        
+        # 根据图片数量启用/禁用导出按钮
+        has_images = len(images) > 0
+        self.export_all_btn.setEnabled(has_images)
+        
+        # 如果当前没有选中图片，禁用单张导出按钮
+        if not self.image_list.currentItem():
+            self.export_single_btn.setEnabled(False)
     
     @pyqtSlot(int, str)
     def update_progress(self, progress, message):
@@ -350,6 +477,8 @@ class MainWindow(QMainWindow):
         if current is None:
             self.preview_label.setText("请选择图片进行预览")
             self.info_label.setText("图片信息将显示在这里")
+            # 禁用单张导出按钮
+            self.export_single_btn.setEnabled(False)
             return
         
         file_path = current.data(Qt.UserRole)
@@ -379,7 +508,9 @@ class MainWindow(QMainWindow):
             """.strip()
             
             self.info_label.setText(info_text)
-
+            # 启用单张导出按钮
+            self.export_single_btn.setEnabled(True)
+    
     def dragEnterEvent(self, event: QDragEnterEvent):
         """窗口级别的拖拽进入事件"""
         if event.mimeData().hasUrls():
@@ -421,6 +552,186 @@ class MainWindow(QMainWindow):
                 return
         
         event.ignore()
+    
+    def handle_dropped_files(self, file_paths):
+        """处理拖拽的文件"""
+        if not file_paths:
+            return
+        
+        # 显示拖拽提示
+        self.status_label.setText(f"正在处理 {len(file_paths)} 个拖拽文件...")
+        
+        # 导入图片
+        success_count = 0
+        fail_count = 0
+        
+        for file_path in file_paths:
+            if self.image_manager.import_single_image(file_path):
+                success_count += 1
+            else:
+                fail_count += 1
+        
+        # 显示结果
+        if fail_count == 0:
+            self.status_label.setText(f"成功导入 {success_count} 张图片")
+        else:
+            self.status_label.setText(f"导入完成：成功 {success_count} 张，失败 {fail_count} 张")
+            QMessageBox.information(
+                self,
+                "拖拽导入结果",
+                f"成功导入 {success_count} 张图片\n失败 {fail_count} 张图片"
+            )
+    
+    def is_supported_image(self, file_path):
+        """检查文件是否为支持的图片格式"""
+        if not os.path.isfile(file_path):
+            return False
+        
+        supported_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff']
+        _, ext = os.path.splitext(file_path)
+        return ext.lower() in supported_extensions
+
+    def on_quality_changed(self, value):
+        """JPEG质量滑块值改变"""
+        self.quality_label.setText(str(value))
+
+    def on_resize_option_changed(self):
+        """缩放选项改变"""
+        # 确保只有一个缩放选项被选中
+        if self.resize_width_check.isChecked():
+            self.resize_height_check.setChecked(False)
+            self.resize_percent_check.setChecked(False)
+            self.resize_width_spin.setEnabled(True)
+            self.resize_height_spin.setEnabled(False)
+            self.resize_percent_spin.setEnabled(False)
+        elif self.resize_height_check.isChecked():
+            self.resize_width_check.setChecked(False)
+            self.resize_percent_check.setChecked(False)
+            self.resize_width_spin.setEnabled(False)
+            self.resize_height_spin.setEnabled(True)
+            self.resize_percent_spin.setEnabled(False)
+        elif self.resize_percent_check.isChecked():
+            self.resize_width_check.setChecked(False)
+            self.resize_height_check.setChecked(False)
+            self.resize_width_spin.setEnabled(False)
+            self.resize_height_spin.setEnabled(False)
+            self.resize_percent_spin.setEnabled(True)
+        else:
+            # 没有选中任何选项
+            self.resize_width_spin.setEnabled(False)
+            self.resize_height_spin.setEnabled(False)
+            self.resize_percent_spin.setEnabled(False)
+
+    def export_single_image(self):
+        """导出单张图片"""
+        current_item = self.image_list.currentItem()
+        if not current_item:
+            QMessageBox.warning(self, "导出失败", "请先选择一张图片")
+            return
+        
+        file_path = current_item.data(Qt.UserRole)
+        
+        # 选择输出目录
+        output_dir = QFileDialog.getExistingDirectory(
+            self,
+            "选择导出目录",
+            "",
+            QFileDialog.ShowDirsOnly
+        )
+        
+        if not output_dir:
+            return
+        
+        # 获取导出设置
+        output_format = self.format_combo.currentText()
+        quality = self.quality_slider.value()
+        prefix = self.prefix_edit.text().strip()
+        suffix = self.suffix_edit.text().strip()
+        
+        # 获取缩放设置
+        resize_width = None
+        resize_height = None
+        resize_percent = None
+        
+        if self.resize_width_check.isChecked():
+            resize_width = self.resize_width_spin.value()
+        elif self.resize_height_check.isChecked():
+            resize_height = self.resize_height_spin.value()
+        elif self.resize_percent_check.isChecked():
+            resize_percent = self.resize_percent_spin.value()
+        
+        # 导出图片
+        success, result = self.image_manager.export_single_image(
+            file_path, output_dir, output_format, quality, prefix, suffix,
+            resize_width, resize_height, resize_percent
+        )
+        
+        if success:
+            QMessageBox.information(self, "导出成功", f"图片已成功导出到:\n{result}")
+            self.status_label.setText(f"成功导出图片: {os.path.basename(result)}")
+        else:
+            QMessageBox.critical(self, "导出失败", f"导出失败:\n{result}")
+            self.status_label.setText(f"导出失败: {result}")
+
+    def export_all_images(self):
+        """导出所有图片"""
+        if self.image_manager.get_image_count() == 0:
+            QMessageBox.warning(self, "导出失败", "图片列表为空")
+            return
+        
+        # 选择输出目录
+        output_dir = QFileDialog.getExistingDirectory(
+            self,
+            "选择导出目录",
+            "",
+            QFileDialog.ShowDirsOnly
+        )
+        
+        if not output_dir:
+            return
+        
+        # 获取导出设置
+        output_format = self.format_combo.currentText()
+        quality = self.quality_slider.value()
+        prefix = self.prefix_edit.text().strip()
+        suffix = self.suffix_edit.text().strip()
+        
+        # 获取缩放设置
+        resize_width = None
+        resize_height = None
+        resize_percent = None
+        
+        if self.resize_width_check.isChecked():
+            resize_width = self.resize_width_spin.value()
+        elif self.resize_height_check.isChecked():
+            resize_height = self.resize_height_spin.value()
+        elif self.resize_percent_check.isChecked():
+            resize_percent = self.resize_percent_spin.value()
+        
+        # 获取所有图片路径
+        file_paths = [img['file_path'] for img in self.image_manager.images]
+        
+        # 批量导出
+        success_count, fail_count, results = self.image_manager.export_multiple_images(
+            file_paths, output_dir, output_format, quality, prefix, suffix,
+            resize_width, resize_height, resize_percent
+        )
+        
+        # 显示结果
+        if fail_count == 0:
+            QMessageBox.information(self, "导出完成", f"成功导出 {success_count} 张图片")
+            self.status_label.setText(f"批量导出完成: {success_count} 张图片")
+        else:
+            # 显示详细错误信息
+            error_details = "\n".join([f"{os.path.basename(fp)}: {error}" 
+                                     for fp, _, error in results if error != "成功"])
+            
+            QMessageBox.warning(
+                self, 
+                "导出结果", 
+                f"成功导出 {success_count} 张图片\n失败 {fail_count} 张图片\n\n失败详情:\n{error_details}"
+            )
+            self.status_label.setText(f"批量导出: 成功 {success_count} 张，失败 {fail_count} 张")
     
     def handle_dropped_files(self, file_paths):
         """处理拖拽的文件"""
