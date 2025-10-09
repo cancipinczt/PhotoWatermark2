@@ -11,14 +11,14 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QPushButton, QListWidget, QListWidgetItem, QLabel, 
                             QFileDialog, QMessageBox, QProgressBar, QSplitter,
                             QFrame, QScrollArea)
-from PyQt5.QtCore import Qt, pyqtSlot
-from PyQt5.QtGui import QPixmap, QFont
+from PyQt5.QtCore import Qt, pyqtSlot, QMimeData
+from PyQt5.QtGui import QPixmap, QFont, QIcon, QDragEnterEvent, QDropEvent, QDragMoveEvent  # 添加QDragMoveEvent导入
 
 from core.image_manager import ImageManager
 
 
 class ImageListWidget(QListWidget):
-    """自定义图片列表控件"""
+    """自定义图片列表控件（支持拖拽）"""
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -27,6 +27,78 @@ class ImageListWidget(QListWidget):
         self.setViewMode(QListWidget.IconMode)
         self.setMovement(QListWidget.Static)
         self.setSpacing(10)
+        
+        # 启用拖拽支持
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QListWidget.DropOnly)
+        
+        # 设置拖拽时的样式
+        self.normal_style = self.styleSheet()
+        self.drag_over_style = """
+            QListWidget {
+                border: 2px dashed #0078d4;
+                background-color: #f0f8ff;
+            }
+        """
+    
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """拖拽进入事件"""
+        if event.mimeData().hasUrls():
+            # 检查是否有支持的图片文件
+            urls = event.mimeData().urls()
+            for url in urls:
+                file_path = url.toLocalFile()
+                if self.is_supported_image(file_path):
+                    # 设置拖拽悬停样式
+                    self.setStyleSheet(self.drag_over_style)
+                    event.acceptProposedAction()
+                    return
+            
+        event.ignore()
+    
+    def dragLeaveEvent(self, event):
+        """拖拽离开事件"""
+        # 恢复正常样式
+        self.setStyleSheet(self.normal_style)
+        super().dragLeaveEvent(event)
+    
+    def dragMoveEvent(self, event: QDragMoveEvent):
+        """拖拽移动事件"""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+    
+    def dropEvent(self, event: QDropEvent):
+        """拖拽释放事件"""
+        # 删除错误的样式设置代码 - MainWindow不需要恢复样式
+        # self.setStyleSheet(self.normal_style)
+        
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            image_files = []
+            
+            for url in urls:
+                file_path = url.toLocalFile()
+                if self.is_supported_image(file_path):
+                    image_files.append(file_path)
+            
+            if image_files:
+                # 直接调用MainWindow的handle_dropped_files方法
+                self.handle_dropped_files(image_files)
+                event.acceptProposedAction()
+                return
+        
+        event.ignore()
+    
+    def is_supported_image(self, file_path):
+        """检查文件是否为支持的图片格式"""
+        if not os.path.isfile(file_path):
+            return False
+        
+        supported_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff']
+        _, ext = os.path.splitext(file_path)
+        return ext.lower() in supported_extensions
 
 
 class MainWindow(QMainWindow):
@@ -41,12 +113,18 @@ class MainWindow(QMainWindow):
         # 设置窗口属性
         self.setWindowTitle("PhotoWatermark2 - 图片水印工具")
         self.resize(1200, 800)
+        
+        # 启用拖拽支持
+        self.setAcceptDrops(True)
     
     def init_ui(self):
         """初始化用户界面"""
         # 创建中央部件
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
+        
+        # 启用中央部件的拖拽支持
+        central_widget.setAcceptDrops(True)
         
         # 主布局
         main_layout = QHBoxLayout(central_widget)
@@ -114,8 +192,14 @@ class MainWindow(QMainWindow):
         self.status_label = QLabel("就绪")
         layout.addWidget(self.status_label)
         
-        # 图片列表
-        self.image_list = ImageListWidget()
+        # 拖拽提示标签
+        drag_label = QLabel("💡 提示：可以直接拖拽图片文件到此区域")
+        drag_label.setStyleSheet("color: #666; font-style: italic; padding: 5px;")
+        drag_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(drag_label)
+        
+        # 图片列表（支持拖拽）
+        self.image_list = ImageListWidget(self)  # 传递self作为parent
         layout.addWidget(self.image_list)
         
         return left_widget
@@ -178,6 +262,7 @@ class MainWindow(QMainWindow):
         
         for img_info in images:
             item = QListWidgetItem()
+            # 使用QIcon设置图标
             item.setIcon(img_info['thumbnail'])
             item.setText(img_info['file_name'])
             item.setData(Qt.UserRole, img_info['file_path'])
@@ -294,3 +379,83 @@ class MainWindow(QMainWindow):
             """.strip()
             
             self.info_label.setText(info_text)
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """窗口级别的拖拽进入事件"""
+        if event.mimeData().hasUrls():
+            # 检查是否有支持的图片文件
+            urls = event.mimeData().urls()
+            for url in urls:
+                file_path = url.toLocalFile()
+                if self.is_supported_image(file_path):
+                    event.acceptProposedAction()
+                    return
+            
+        event.ignore()
+    
+    def dragMoveEvent(self, event: QDragMoveEvent):
+        """窗口级别的拖拽移动事件"""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+    
+    def dropEvent(self, event: QDropEvent):
+        """拖拽释放事件"""
+        # 删除错误的样式设置代码 - MainWindow不需要恢复样式
+        # self.setStyleSheet(self.normal_style)
+        
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            image_files = []
+            
+            for url in urls:
+                file_path = url.toLocalFile()
+                if self.is_supported_image(file_path):
+                    image_files.append(file_path)
+            
+            if image_files:
+                # 直接调用MainWindow的handle_dropped_files方法
+                self.handle_dropped_files(image_files)
+                event.acceptProposedAction()
+                return
+        
+        event.ignore()
+    
+    def handle_dropped_files(self, file_paths):
+        """处理拖拽的文件"""
+        if not file_paths:
+            return
+        
+        # 显示拖拽提示
+        self.status_label.setText(f"正在处理 {len(file_paths)} 个拖拽文件...")
+        
+        # 导入图片
+        success_count = 0
+        fail_count = 0
+        
+        for file_path in file_paths:
+            if self.image_manager.import_single_image(file_path):
+                success_count += 1
+            else:
+                fail_count += 1
+        
+        # 显示结果
+        if fail_count == 0:
+            self.status_label.setText(f"成功导入 {success_count} 张图片")
+        else:
+            self.status_label.setText(f"导入完成：成功 {success_count} 张，失败 {fail_count} 张")
+            QMessageBox.information(
+                self,
+                "拖拽导入结果",
+                f"成功导入 {success_count} 张图片\n失败 {fail_count} 张图片"
+            )
+    
+    def is_supported_image(self, file_path):
+        """检查文件是否为支持的图片格式"""
+        if not os.path.isfile(file_path):
+            return False
+        
+        supported_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff']
+        _, ext = os.path.splitext(file_path)
+        return ext.lower() in supported_extensions

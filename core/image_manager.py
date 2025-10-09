@@ -8,7 +8,7 @@
 
 import os
 from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QPixmap, QIcon  # 添加QIcon导入
 import logging
 
 from .image_processor import ImageProcessor
@@ -62,11 +62,12 @@ class ImageManager(QObject):
             if not success:
                 return False
             
-            # 创建缩略图
-            thumbnail = self.image_processor.create_thumbnail(image)
+            # 创建缩略图并转换为QIcon
+            thumbnail_pixmap = self.image_processor.create_thumbnail(image)
+            thumbnail_icon = QIcon(thumbnail_pixmap)
             
             # 添加到图片列表
-            image_info['thumbnail'] = thumbnail
+            image_info['thumbnail'] = thumbnail_icon  # 存储QIcon对象
             image_info['image_object'] = image  # 保存PIL图像对象
             self.images.append(image_info)
             
