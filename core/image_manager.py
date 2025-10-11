@@ -8,8 +8,9 @@
 
 import os
 from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtGui import QPixmap, QIcon  # 添加QIcon导入
+from PyQt5.QtGui import QPixmap, QIcon, QImage  # 添加QIcon导入
 import logging
+from PIL import Image  # 添加Image导入
 
 from .image_processor import ImageProcessor
 
@@ -454,3 +455,123 @@ class ImageManager(QObject):
         self.progress_updated.emit(100, f"带水印导出完成: 成功 {success_count} 张，失败 {fail_count} 张")
         
         return success_count, fail_count, results
+
+    def create_watermarked_preview(self, file_path, text, position, opacity, font, font_size, 
+                                 bold, italic, color, shadow, stroke, max_width=800, max_height=600):
+        """
+        创建带水印的预览图片
+        
+        Args:
+            file_path: 图片文件路径
+            text: 水印文本
+            position: 水印位置
+            opacity: 透明度
+            font: 字体
+            font_size: 字号
+            bold: 是否粗体
+            italic: 是否斜体
+            color: 颜色 (RGB元组)
+            shadow: 是否阴影
+            stroke: 是否描边
+            max_width: 最大宽度
+            max_height: 最大高度
+            
+        Returns:
+            tuple: (成功状态, QPixmap预览图片)
+        """
+        try:
+            # 检查文本是否为空
+            if not text or not text.strip():
+                # 如果文本为空，返回原图预览
+                success, image_or_error = self.image_processor.load_image(file_path)
+                if not success:
+                    return False, f"加载图片失败: {image_or_error}"
+                
+                image = image_or_error
+                # 直接处理原图预览
+                original_width, original_height = image.size
+                
+                # 计算缩放比例
+                width_ratio = max_width / original_width
+                height_ratio = max_height / original_height
+                scale_ratio = min(width_ratio, height_ratio, 1.0)
+                
+                new_width = int(original_width * scale_ratio)
+                new_height = int(original_height * scale_ratio)
+                
+                # 缩放图片
+                if scale_ratio < 1.0:
+                    image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                
+                # 转换为QPixmap
+                if image.mode == 'RGB':
+                    q_image = QImage(image.tobytes(), image.width, 
+                                   image.height, image.width * 3, 
+                                   QImage.Format_RGB888)
+                elif image.mode == 'RGBA':
+                    q_image = QImage(image.tobytes(), image.width, 
+                                   image.height, image.width * 4, 
+                                   QImage.Format_RGBA8888)
+                else:
+                    image = image.convert('RGB')
+                    q_image = QImage(image.tobytes(), image.width, 
+                                   image.height, image.width * 3, 
+                                   QImage.Format_RGB888)
+                
+                pixmap = QPixmap.fromImage(q_image)
+                image.close()
+                return True, pixmap
+            
+            # 加载原始图片
+            success, image_or_error = self.image_processor.load_image(file_path)
+            if not success:
+                return False, f"加载图片失败: {image_or_error}"
+            
+            image = image_or_error
+            
+            # 添加水印
+            watermarked_image = self.image_processor.add_text_watermark(
+                image, text, position, opacity, font, font_size, bold, italic, 
+                color, shadow, stroke
+            )
+            
+            # 缩放图片以适应预览区域
+            original_width, original_height = watermarked_image.size
+            
+            # 计算缩放比例
+            width_ratio = max_width / original_width
+            height_ratio = max_height / original_height
+            scale_ratio = min(width_ratio, height_ratio, 1.0)  # 不超过原图大小
+            
+            new_width = int(original_width * scale_ratio)
+            new_height = int(original_height * scale_ratio)
+            
+            # 缩放图片
+            if scale_ratio < 1.0:
+                watermarked_image = watermarked_image.resize(
+                    (new_width, new_height), Image.Resampling.LANCZOS
+                )
+            
+            # 转换为QPixmap
+            if watermarked_image.mode == 'RGB':
+                q_image = QImage(watermarked_image.tobytes(), watermarked_image.width, 
+                               watermarked_image.height, watermarked_image.width * 3, 
+                               QImage.Format_RGB888)
+            elif watermarked_image.mode == 'RGBA':
+                q_image = QImage(watermarked_image.tobytes(), watermarked_image.width, 
+                               watermarked_image.height, watermarked_image.width * 4, 
+                               QImage.Format_RGBA8888)
+            else:
+                watermarked_image = watermarked_image.convert('RGB')
+                q_image = QImage(watermarked_image.tobytes(), watermarked_image.width, 
+                               watermarked_image.height, watermarked_image.width * 3, 
+                               QImage.Format_RGB888)
+            
+            pixmap = QPixmap.fromImage(q_image)
+            image.close()
+            return True, pixmap
+            
+        except Exception as e:
+            # 记录错误并返回失败状态
+            self.logger.error(f"创建水印预览失败: {str(e)}")
+            return False, f"生成预览失败: {str(e)}"

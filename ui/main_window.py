@@ -11,8 +11,8 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                             QPushButton, QListWidget, QListWidgetItem, QLabel, 
                             QFileDialog, QMessageBox, QProgressBar, QSplitter,
                             QFrame, QScrollArea, QComboBox, QSpinBox, QSlider, 
-                            QLineEdit, QGroupBox, QCheckBox, QColorDialog)  # 添加QColorDialog导入
-from PyQt5.QtCore import Qt, pyqtSlot, QMimeData
+                            QLineEdit, QGroupBox, QCheckBox, QColorDialog, QSizePolicy)  # 添加QSizePolicy导入
+from PyQt5.QtCore import Qt, pyqtSlot, QMimeData, QTimer  # 添加QTimer导入
 from PyQt5.QtGui import QPixmap, QFont, QIcon, QDragEnterEvent, QDropEvent, QDragMoveEvent, QColor  # 添加QColor导入
 
 from core.image_manager import ImageManager
@@ -220,16 +220,18 @@ class MainWindow(QMainWindow):
         preview_frame.setFrameStyle(QFrame.Box)
         preview_layout = QVBoxLayout(preview_frame)
         
-        # 预览图片标签
+        # 预览图片标签 - 修复：设置更合适的最小尺寸
         self.preview_label = QLabel()
         self.preview_label.setAlignment(Qt.AlignCenter)
         self.preview_label.setText("请选择图片进行预览")
-        self.preview_label.setMinimumSize(400, 300)
+        self.preview_label.setMinimumSize(600, 400)  # 增加最小尺寸以提供更好的预览体验
+        self.preview_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         # 添加到滚动区域
         scroll_area = QScrollArea()
         scroll_area.setWidget(self.preview_label)
         scroll_area.setWidgetResizable(True)
+        scroll_area.setMinimumSize(600, 400)  # 设置滚动区域的最小尺寸
         
         preview_layout.addWidget(scroll_area)
         layout.addWidget(preview_frame)
@@ -312,7 +314,6 @@ class MainWindow(QMainWindow):
         width_layout.addWidget(QLabel("像素"))
         width_layout.addStretch()
         resize_layout.addLayout(width_layout)
-        
         # 高度缩放
         height_layout = QHBoxLayout()
         self.resize_height_check = QCheckBox("按高度缩放:")
@@ -375,12 +376,13 @@ class MainWindow(QMainWindow):
     
     def connect_signals(self):
         """连接信号和槽"""
+        # 图片列表选择变化信号
+        self.image_list.currentItemChanged.connect(self.on_image_selected)
+        
+        # 其他信号连接...
         # 图片管理器信号
         self.image_manager.images_updated.connect(self.update_image_list)
         self.image_manager.progress_updated.connect(self.update_progress)
-        
-        # 列表选择信号
-        self.image_list.currentItemChanged.connect(self.on_image_selected)
     
     @pyqtSlot(list)
     def update_image_list(self, images):
@@ -493,17 +495,8 @@ class MainWindow(QMainWindow):
         img_info = self.image_manager.get_image_by_path(file_path)
         
         if img_info:
-            # 显示原图预览（适当缩放）
-            original_pixmap = QPixmap(file_path)
-            if not original_pixmap.isNull():
-                # 缩放以适应预览区域
-                scaled_pixmap = original_pixmap.scaled(
-                    self.preview_label.width(), 
-                    self.preview_label.height(),
-                    Qt.KeepAspectRatio,
-                    Qt.SmoothTransformation
-                )
-                self.preview_label.setPixmap(scaled_pixmap)
+            # 更新预览图片（带水印效果）
+            self.update_preview_with_watermark(file_path)
             
             # 显示图片信息
             info_text = f"""
@@ -519,6 +512,79 @@ class MainWindow(QMainWindow):
             # 启用单张导出按钮
             self.export_single_btn.setEnabled(True)
     
+    def update_preview_with_watermark(self, file_path):
+        """更新带水印的预览图片"""
+        try:
+            # 获取水印设置
+            watermark_settings = self.get_watermark_settings()
+            
+            # 如果水印未启用或文本为空，显示原图预览
+            if not watermark_settings['enabled'] or not watermark_settings['text'].strip():
+                original_pixmap = QPixmap(file_path)
+                if not original_pixmap.isNull():
+                    # 获取预览标签的实际可用尺寸
+                    preview_width = max(100, self.preview_label.width() - 20)  # 减去边距
+                    preview_height = max(100, self.preview_label.height() - 20)
+                    
+                    # 缩放以适应预览区域
+                    scaled_pixmap = original_pixmap.scaled(
+                        preview_width, 
+                        preview_height,
+                        Qt.KeepAspectRatio,
+                        Qt.SmoothTransformation
+                    )
+                    self.preview_label.setPixmap(scaled_pixmap)
+                return
+            
+            # 使用图像管理器生成带水印的预览图片
+            success, result = self.image_manager.create_watermarked_preview(
+                file_path,
+                watermark_settings['text'],
+                watermark_settings['position'],
+                watermark_settings['opacity'],
+                watermark_settings['font'],
+                watermark_settings['font_size'],
+                watermark_settings['bold'],
+                watermark_settings['italic'],
+                watermark_settings['color'],
+                watermark_settings['shadow'],
+                watermark_settings['stroke'],
+                max_width=max(400, self.preview_label.width() - 20),  # 确保最小宽度
+                max_height=max(300, self.preview_label.height() - 20)  # 确保最小高度
+            )
+            
+            if success:
+                self.preview_label.setPixmap(result)
+            else:
+                # 如果生成水印预览失败，显示原图并记录错误
+                print(f"水印预览生成失败: {result}")
+                original_pixmap = QPixmap(file_path)
+                if not original_pixmap.isNull():
+                    preview_width = max(100, self.preview_label.width() - 20)
+                    preview_height = max(100, self.preview_label.height() - 20)
+                    scaled_pixmap = original_pixmap.scaled(
+                        preview_width, 
+                        preview_height,
+                        Qt.KeepAspectRatio,
+                        Qt.SmoothTransformation
+                    )
+                    self.preview_label.setPixmap(scaled_pixmap)
+                
+        except Exception as e:
+            # 出错时显示原图并记录错误
+            print(f"预览更新异常: {str(e)}")
+            original_pixmap = QPixmap(file_path)
+            if not original_pixmap.isNull():
+                preview_width = max(100, self.preview_label.width() - 20)
+                preview_height = max(100, self.preview_label.height() - 20)
+                scaled_pixmap = original_pixmap.scaled(
+                    preview_width, 
+                    preview_height,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation
+                )
+                self.preview_label.setPixmap(scaled_pixmap)
+
     def dragEnterEvent(self, event: QDragEnterEvent):
         """窗口级别的拖拽进入事件"""
         if event.mimeData().hasUrls():
@@ -568,7 +634,6 @@ class MainWindow(QMainWindow):
         
         # 显示拖拽提示
         self.status_label.setText(f"正在处理 {len(file_paths)} 个拖拽文件...")
-        
         # 导入图片
         success_count = 0
         fail_count = 0
@@ -694,7 +759,7 @@ class MainWindow(QMainWindow):
         font_size_layout = QHBoxLayout()
         font_size_layout.addWidget(QLabel("字号:"))
         self.watermark_font_size = QSpinBox()
-        self.watermark_font_size.setRange(8, 72)
+        self.watermark_font_size.setRange(8, 10000)  # 将上限从72扩大到10000像素
         self.watermark_font_size.setValue(24)
         self.watermark_font_size.valueChanged.connect(self.on_watermark_font_size_changed)
         font_size_layout.addWidget(self.watermark_font_size)
@@ -775,34 +840,44 @@ class MainWindow(QMainWindow):
         """水印启用状态改变"""
         enabled = state == Qt.Checked
         self.set_watermark_controls_enabled(enabled)
+        # 实时更新预览
+        self.update_preview_with_watermark_for_current()
 
     def on_watermark_text_changed(self, text):
         """水印文本改变"""
-        pass
-
+        # 实时更新预览
+        self.update_preview_with_watermark_for_current()
+    
     def on_watermark_position_changed(self, position):
         """水印位置改变"""
-        pass
-
+        # 实时更新预览
+        self.update_preview_with_watermark_for_current()
+    
     def on_watermark_opacity_changed(self, value):
         """水印透明度改变"""
         self.opacity_label.setText(f"{value}%")
-
+        # 实时更新预览
+        self.update_preview_with_watermark_for_current()
+    
     def on_watermark_font_changed(self, font):
         """水印字体改变"""
-        pass
-
+        # 实时更新预览
+        self.update_preview_with_watermark_for_current()
+    
     def on_watermark_font_size_changed(self, size):
         """水印字号改变"""
-        pass
-
+        # 实时更新预览
+        self.update_preview_with_watermark_for_current()
+    
     def on_watermark_style_changed(self):
         """水印样式改变"""
-        pass
-
+        # 实时更新预览
+        self.update_preview_with_watermark_for_current()
+    
     def on_watermark_effect_changed(self):
         """水印效果改变"""
-        pass
+        # 实时更新预览
+        self.update_preview_with_watermark_for_current()
 
     def on_color_button_clicked(self):
         """颜色按钮点击事件 - 打开调色板"""
@@ -831,22 +906,8 @@ class MainWindow(QMainWindow):
             color_name = self.get_color_name(color)
             self.watermark_color_label.setText(color_name)
             
-            # 触发颜色改变事件
-            self.on_watermark_color_changed(color_name)
-
-    def get_color_name(self, color):
-        """根据颜色值获取颜色名称"""
-        color_map = {
-            (255, 255, 255): '白色',
-            (0, 0, 0): '黑色',
-            (255, 0, 0): '红色',
-            (0, 0, 255): '蓝色',
-            (0, 255, 0): '绿色',
-            (255, 255, 0): '黄色'
-        }
-        
-        rgb = (color.red(), color.green(), color.blue())
-        return color_map.get(rgb, f"RGB({rgb[0]},{rgb[1]},{rgb[2]})")
+            # 直接触发预览更新，确保颜色设置立即生效
+            self.update_preview_with_watermark_for_current()
 
     def on_watermark_color_changed(self, color_name):
         """水印颜色改变"""
@@ -865,6 +926,23 @@ class MainWindow(QMainWindow):
         
         # 更新颜色标签显示
         self.watermark_color_label.setText(color_name)
+        
+        # 确保预览更新
+        self.update_preview_with_watermark_for_current()
+
+    def get_color_name(self, color):
+        """根据颜色值获取颜色名称"""
+        color_map = {
+            (255, 255, 255): '白色',
+            (0, 0, 0): '黑色',
+            (255, 0, 0): '红色',
+            (0, 0, 255): '蓝色',
+            (0, 255, 0): '绿色',
+            (255, 255, 0): '黄色'
+        }
+        
+        rgb = (color.red(), color.green(), color.blue())
+        return color_map.get(rgb, f"RGB({rgb[0]},{rgb[1]},{rgb[2]})")
 
     def get_watermark_settings(self):
         """获取水印设置"""
@@ -898,7 +976,17 @@ class MainWindow(QMainWindow):
                 }
                 color_rgb = color_map.get(color_str.lower(), (255, 255, 255))
         else:
-            color_rgb = (255, 255, 255)
+            # 如果无法从样式表获取颜色，尝试从标签文本获取
+            color_name = self.watermark_color_label.text()
+            color_map = {
+                '白色': (255, 255, 255),
+                '黑色': (0, 0, 0),
+                '红色': (255, 0, 0),
+                '蓝色': (0, 0, 255),
+                '绿色': (0, 255, 0),
+                '黄色': (255, 255, 0)
+            }
+            color_rgb = color_map.get(color_name, (255, 255, 255))
         
         return {
             'enabled': self.watermark_enabled.isChecked(),
@@ -970,7 +1058,6 @@ class MainWindow(QMainWindow):
             resize_height = self.resize_height_spin.value()
         elif self.resize_percent_check.isChecked():
             resize_percent = self.resize_percent_spin.value()
-        
         # 获取水印设置
         watermark_settings = self.get_watermark_settings()
         
@@ -1075,3 +1162,10 @@ class MainWindow(QMainWindow):
                 f"成功导出 {success_count} 张图片\n失败 {fail_count} 张图片\n\n失败详情:\n{error_details}"
             )
             self.status_label.setText(f"批量导出: 成功 {success_count} 张，失败 {fail_count} 张")
+
+    def update_preview_with_watermark_for_current(self):
+        """为当前选中的图片更新带水印的预览"""
+        current_item = self.image_list.currentItem()
+        if current_item:
+            file_path = current_item.data(Qt.UserRole)
+            self.update_preview_with_watermark(file_path)
