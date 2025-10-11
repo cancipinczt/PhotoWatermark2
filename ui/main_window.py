@@ -121,7 +121,7 @@ class MainWindow(QMainWindow):
         
         # 设置窗口属性
         self.setWindowTitle("PhotoWatermark2 - 图片水印工具")
-        self.resize(1200, 800)
+        self.resize(1400, 800)  # 增加窗口宽度以适应三栏布局
         
         # 启用拖拽支持
         self.setAcceptDrops(True)
@@ -148,19 +148,26 @@ class MainWindow(QMainWindow):
         # 左侧面板 - 图片列表和控制按钮
         left_panel = self.create_left_panel()
         
-        # 右侧面板 - 预览区域
+        # 中间面板 - 预览区域和图片信息
+        center_panel = self.create_center_panel()
+        
+        # 右侧面板 - 水印设置和导出设置
         right_panel = self.create_right_panel()
         
         # 添加到分割器
         splitter.addWidget(left_panel)
+        splitter.addWidget(center_panel)
         splitter.addWidget(right_panel)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 2)
+        
+        # 设置分割器比例：左:中:右 = 1:2:1.5
+        splitter.setStretchFactor(0, 1)   # 左侧
+        splitter.setStretchFactor(1, 2)   # 中间
+        splitter.setStretchFactor(2, 1.5) # 右侧
         
         main_layout.addWidget(splitter)
     
     def create_left_panel(self):
-        """创建左侧面板"""
+        """创建左侧面板 - 图片列表和控制按钮"""
         left_widget = QWidget()
         layout = QVBoxLayout(left_widget)
         
@@ -217,10 +224,10 @@ class MainWindow(QMainWindow):
         
         return left_widget
     
-    def create_right_panel(self):
-        """创建右侧预览面板"""
-        right_widget = QWidget()
-        layout = QVBoxLayout(right_widget)
+    def create_center_panel(self):
+        """创建中间面板 - 预览区域和图片信息"""
+        center_widget = QWidget()
+        layout = QVBoxLayout(center_widget)
         
         # 标题
         title_label = QLabel("图片预览")
@@ -232,18 +239,18 @@ class MainWindow(QMainWindow):
         preview_frame.setFrameStyle(QFrame.Box)
         preview_layout = QVBoxLayout(preview_frame)
         
-        # 预览图片标签 - 修复：设置更合适的最小尺寸
+        # 预览图片标签
         self.preview_label = QLabel()
         self.preview_label.setAlignment(Qt.AlignCenter)
         self.preview_label.setText("请选择图片进行预览")
-        self.preview_label.setMinimumSize(600, 400)  # 增加最小尺寸以提供更好的预览体验
+        self.preview_label.setMinimumSize(500, 400)  # 调整最小尺寸
         self.preview_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         # 添加到滚动区域
         scroll_area = QScrollArea()
         scroll_area.setWidget(self.preview_label)
         scroll_area.setWidgetResizable(True)
-        scroll_area.setMinimumSize(600, 400)  # 设置滚动区域的最小尺寸
+        scroll_area.setMinimumSize(500, 400)  # 调整滚动区域的最小尺寸
         
         preview_layout.addWidget(scroll_area)
         layout.addWidget(preview_frame)
@@ -253,17 +260,36 @@ class MainWindow(QMainWindow):
         info_frame.setFrameStyle(QFrame.Box)
         info_layout = QVBoxLayout(info_frame)
         
+        info_title = QLabel("图片信息")
+        info_title.setFont(QFont("Arial", 10, QFont.Bold))
+        info_layout.addWidget(info_title)
+        
         self.info_label = QLabel("图片信息将显示在这里")
         self.info_label.setWordWrap(True)
         info_layout.addWidget(self.info_label)
         
         layout.addWidget(info_frame)
         
-        # 添加文本水印设置面板（调整到上方）
+        # 添加弹性空间
+        layout.addStretch()
+        
+        return center_widget
+    
+    def create_right_panel(self):
+        """创建右侧面板 - 水印设置和导出设置"""
+        right_widget = QWidget()
+        layout = QVBoxLayout(right_widget)
+        
+        # 标题
+        title_label = QLabel("水印和导出设置")
+        title_label.setFont(QFont("Arial", 12, QFont.Bold))
+        layout.addWidget(title_label)
+        
+        # 添加文本水印设置面板
         watermark_group = self.create_watermark_settings()
         layout.addWidget(watermark_group)
         
-        # 导出设置区域（调整到下方）
+        # 导出设置区域
         export_group = QGroupBox("导出设置")
         export_layout = QVBoxLayout(export_group)
         
@@ -326,6 +352,7 @@ class MainWindow(QMainWindow):
         width_layout.addWidget(QLabel("像素"))
         width_layout.addStretch()
         resize_layout.addLayout(width_layout)
+        
         # 高度缩放
         height_layout = QHBoxLayout()
         self.resize_height_check = QCheckBox("按高度缩放:")
@@ -377,12 +404,11 @@ class MainWindow(QMainWindow):
         
         layout.addWidget(export_group)
         
-        # 添加文本水印设置面板
-        # watermark_group = self.create_watermark_settings()
-        # layout.addWidget(watermark_group)
-        
         # 连接信号
         self.quality_slider.valueChanged.connect(self.on_quality_changed)
+        
+        # 添加弹性空间
+        layout.addStretch()
         
         return right_widget
     
