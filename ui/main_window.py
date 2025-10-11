@@ -7,6 +7,7 @@
 """
 
 import os
+import json  # 添加json模块导入
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                             QPushButton, QListWidget, QListWidgetItem, QLabel, 
                             QFileDialog, QMessageBox, QProgressBar, QSplitter,
@@ -113,6 +114,7 @@ class MainWindow(QMainWindow):
         self.watermark_templates = {}  # 存储水印模板
         self.default_template = None  # 默认模板名称
         self.templates_file = os.path.join(os.path.expanduser("~"), ".photowatermark2", "templates.json")
+        self.last_settings_file = os.path.join(os.path.expanduser("~"), ".photowatermark2", "last_settings.json")
         
         self.init_ui()
         self.connect_signals()
@@ -124,8 +126,9 @@ class MainWindow(QMainWindow):
         # 启用拖拽支持
         self.setAcceptDrops(True)
         
-        # 加载保存的模板
+        # 加载保存的模板和上次设置
         self.load_templates()
+        self.load_last_settings()
     
     def init_ui(self):
         """初始化用户界面"""
@@ -408,7 +411,6 @@ class MainWindow(QMainWindow):
         
         # 更新状态
         self.status_label.setText(f"已加载 {len(images)} 张图片")
-        
         # 根据图片数量启用/禁用导出按钮
         has_images = len(images) > 0
         self.export_all_btn.setEnabled(has_images)
@@ -429,86 +431,82 @@ class MainWindow(QMainWindow):
 
     # 配置管理功能方法
     def save_template(self):
-        """保存当前水印设置为模板"""
+        """保存当前设置为模板"""
         template_name = self.template_name_edit.text().strip()
         if not template_name:
             QMessageBox.warning(self, "保存失败", "请输入模板名称")
             return
         
-        if template_name in self.watermark_templates:
-            reply = QMessageBox.question(
-                self, "确认覆盖", 
-                f"模板 '{template_name}' 已存在，是否覆盖？",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            if reply == QMessageBox.No:
-                return
+        # 获取当前设置
+        settings = self.get_watermark_settings()
         
-        # 获取当前水印设置
-        watermark_settings = self.get_watermark_settings()
-        
-        # 保存模板
-        self.watermark_templates[template_name] = watermark_settings
-        
-        # 更新模板列表
-        self.update_template_combo()
+        # 保存到模板字典
+        self.watermark_templates[template_name] = settings
         
         # 保存到文件
         self.save_templates()
         
-        QMessageBox.information(self, "保存成功", f"模板 '{template_name}' 已保存")
+        # 更新模板列表
+        self.update_template_combo()
+        
+        # 清空输入框
         self.template_name_edit.clear()
+        
+        QMessageBox.information(self, "保存成功", f"模板 '{template_name}' 已保存")
 
     def load_template(self):
         """加载选中的模板"""
         template_name = self.template_combo.currentText()
-        if not template_name:
-            QMessageBox.warning(self, "加载失败", "请先选择一个模板")
+        if template_name == "--选择模板--" or not template_name:
+            QMessageBox.warning(self, "加载失败", "请选择一个模板")
             return
         
         if template_name not in self.watermark_templates:
             QMessageBox.warning(self, "加载失败", f"模板 '{template_name}' 不存在")
             return
         
-        # 加载模板设置
-        template_settings = self.watermark_templates[template_name]
-        self.apply_template_settings(template_settings)
+        # 获取模板设置
+        settings = self.watermark_templates[template_name]
+        
+        # 应用到UI
+        self.apply_settings_to_ui(settings)
         
         QMessageBox.information(self, "加载成功", f"模板 '{template_name}' 已加载")
 
     def delete_template(self):
         """删除选中的模板"""
         template_name = self.template_combo.currentText()
-        if not template_name:
-            QMessageBox.warning(self, "删除失败", "请先选择一个模板")
+        if template_name == "--选择模板--" or not template_name:
+            QMessageBox.warning(self, "删除失败", "请选择一个模板")
             return
         
         if template_name not in self.watermark_templates:
             QMessageBox.warning(self, "删除失败", f"模板 '{template_name}' 不存在")
             return
         
+        # 确认删除
         reply = QMessageBox.question(
-            self, "确认删除", 
+            self,
+            "确认删除",
             f"确定要删除模板 '{template_name}' 吗？",
             QMessageBox.Yes | QMessageBox.No
         )
-        if reply == QMessageBox.No:
-            return
         
-        # 删除模板
-        del self.watermark_templates[template_name]
-        
-        # 如果删除的是默认模板，清除默认设置
-        if self.default_template == template_name:
-            self.default_template = None
-        
-        # 更新模板列表
-        self.update_template_combo()
-        
-        # 保存到文件
-        self.save_templates()
-        
-        QMessageBox.information(self, "删除成功", f"模板 '{template_name}' 已删除")
+        if reply == QMessageBox.Yes:
+            # 删除模板
+            del self.watermark_templates[template_name]
+            
+            # 如果删除的是默认模板，清除默认设置
+            if self.default_template == template_name:
+                self.default_template = None
+            
+            # 保存到文件
+            self.save_templates()
+            
+            # 更新模板列表
+            self.update_template_combo()
+            
+            QMessageBox.information(self, "删除成功", f"模板 '{template_name}' 已删除")
 
     def apply_template_to_current(self):
         """将当前模板应用到当前选中的图片"""
@@ -546,10 +544,14 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "应用成功", f"模板 '{template_name}' 已应用到所有图片")
 
     def set_default_template(self):
-        """设置当前选中的模板为默认模板"""
+        """设置默认模板"""
         template_name = self.template_combo.currentText()
-        if not template_name:
-            QMessageBox.warning(self, "设置失败", "请先选择一个模板")
+        if template_name == "--选择模板--" or not template_name:
+            QMessageBox.warning(self, "设置失败", "请选择一个模板")
+            return
+        
+        if template_name not in self.watermark_templates:
+            QMessageBox.warning(self, "设置失败", f"模板 '{template_name}' 不存在")
             return
         
         self.default_template = template_name
@@ -567,9 +569,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "应用失败", "默认模板不存在")
             return
         
-        # 加载默认模板设置
-        template_settings = self.watermark_templates[self.default_template]
-        self.apply_template_settings(template_settings)
+        # 获取默认模板设置
+        settings = self.watermark_templates[self.default_template]
+        
+        # 应用到UI
+        self.apply_settings_to_ui(settings)
         
         QMessageBox.information(self, "应用成功", f"默认模板 '{self.default_template}' 已应用")
 
@@ -627,9 +631,11 @@ class MainWindow(QMainWindow):
         self.status_label.setText(info)
 
     def update_template_combo(self):
-        """更新模板下拉列表"""
+        """更新模板下拉框"""
         self.template_combo.clear()
-        for template_name in sorted(self.watermark_templates.keys()):
+        self.template_combo.addItem("--选择模板--")
+        
+        for template_name in self.watermark_templates.keys():
             self.template_combo.addItem(template_name)
         
         # 如果有默认模板，选中它
@@ -650,29 +656,57 @@ class MainWindow(QMainWindow):
                 'default_template': self.default_template
             }
             
-            import json
             with open(self.templates_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"保存模板失败: {e}")
 
     def load_templates(self):
-        """从文件加载模板"""
+        """加载保存的模板"""
         try:
+            # 确保目录存在
+            os.makedirs(os.path.dirname(self.templates_file), exist_ok=True)
+            
             if os.path.exists(self.templates_file):
-                import json
                 with open(self.templates_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                
-                self.watermark_templates = data.get('templates', {})
-                self.default_template = data.get('default_template')
-                
+                    self.watermark_templates = data.get('templates', {})
+                    self.default_template = data.get('default_template')
+                    
                 # 更新模板列表
                 self.update_template_combo()
+                
+                # 如果有默认模板，应用默认模板；否则应用上次设置
+                if self.default_template and self.default_template in self.watermark_templates:
+                    settings = self.watermark_templates[self.default_template]
+                    self.apply_settings_to_ui(settings)
         except Exception as e:
             print(f"加载模板失败: {e}")
-            self.watermark_templates = {}
-            self.default_template = None
+    
+    def save_last_settings(self):
+        """保存当前设置到文件"""
+        try:
+            # 确保目录存在
+            os.makedirs(os.path.dirname(self.last_settings_file), exist_ok=True)
+            
+            settings = self.get_watermark_settings()
+            with open(self.last_settings_file, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存上次设置失败: {e}")
+    
+    def load_last_settings(self):
+        """加载上次关闭时的设置"""
+        try:
+            if os.path.exists(self.last_settings_file):
+                with open(self.last_settings_file, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+                    
+                # 如果没有默认模板，应用上次设置
+                if not self.default_template:
+                    self.apply_settings_to_ui(settings)
+        except Exception as e:
+            print(f"加载上次设置失败: {e}")
     
     def import_single_image(self):
         """导入单张图片"""
@@ -807,7 +841,6 @@ class MainWindow(QMainWindow):
                 max_width=max(400, self.preview_label.width() - 20),  # 确保最小宽度
                 max_height=max(300, self.preview_label.height() - 20)  # 确保最小高度
             )
-            
             if success:
                 self.preview_label.setPixmap(result)
             else:
@@ -1111,19 +1144,6 @@ class MainWindow(QMainWindow):
         template_list_layout.addWidget(self.template_combo)
         config_layout.addLayout(template_list_layout)
         
-        # 应用模板按钮
-        apply_buttons_layout = QHBoxLayout()
-        
-        self.apply_current_btn = QPushButton("应用到当前图片")
-        self.apply_current_btn.clicked.connect(self.apply_template_to_current)
-        apply_buttons_layout.addWidget(self.apply_current_btn)
-        
-        self.apply_all_btn = QPushButton("应用到所有图片")
-        self.apply_all_btn.clicked.connect(self.apply_template_to_all)
-        apply_buttons_layout.addWidget(self.apply_all_btn)
-        
-        config_layout.addLayout(apply_buttons_layout)
-        
         # 默认模板设置
         default_layout = QHBoxLayout()
         self.set_default_btn = QPushButton("设为默认模板")
@@ -1406,7 +1426,6 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.critical(self, "导出失败", f"导出失败:\n{result}")
             self.status_label.setText(f"导出失败: {result}")
-
     def export_all_images(self):
         """导出所有图片"""
         if self.image_manager.get_image_count() == 0:
@@ -1489,3 +1508,67 @@ class MainWindow(QMainWindow):
         if current_item:
             file_path = current_item.data(Qt.UserRole)
             self.update_preview_with_watermark(file_path)
+    
+    def apply_settings_to_ui(self, settings):
+        """将设置应用到UI控件"""
+        try:
+            # 水印启用状态
+            self.watermark_enabled.setChecked(settings.get('enabled', False))
+            
+            # 文本内容
+            self.watermark_text.setText(settings.get('text', ''))
+            
+            # 位置选择
+            position = settings.get('position', '右下角')
+            if position in ['左上角', '右上角', '左下角', '右下角', '正中心', '顶部居中', '底部居中', '左侧居中', '右侧居中']:
+                self.watermark_position.setCurrentText(position)
+            
+            # 透明度
+            opacity = settings.get('opacity', 50)
+            self.watermark_opacity.setValue(opacity)
+            self.opacity_label.setText(f"{opacity}%")
+            
+            # 字体
+            font = settings.get('font', 'Arial')
+            if font in ['Arial', 'Times New Roman', 'SimHei', 'Microsoft YaHei', 'SimSun']:
+                self.watermark_font.setCurrentText(font)
+            
+            # 字号
+            font_size = settings.get('font_size', 24)
+            self.watermark_font_size.setValue(font_size)
+            
+            # 字体样式
+            self.watermark_bold.setChecked(settings.get('bold', False))
+            self.watermark_italic.setChecked(settings.get('italic', False))
+            
+            # 颜色
+            color = settings.get('color', (255, 255, 255))
+            if isinstance(color, list):
+                color = tuple(color)
+            self.update_color_button(color)
+            
+            # 效果
+            self.watermark_shadow.setChecked(settings.get('shadow', False))
+            self.watermark_stroke.setChecked(settings.get('stroke', False))
+            
+        except Exception as e:
+            print(f"应用设置到UI失败: {e}")
+    
+    def update_color_button(self, color_rgb):
+        """更新颜色按钮的显示"""
+        try:
+            if isinstance(color_rgb, (list, tuple)) and len(color_rgb) == 3:
+                r, g, b = color_rgb
+                color_name = self.get_color_name(QColor(r, g, b))
+                self.watermark_color_label.setText(color_name)
+                self.watermark_color_button.setStyleSheet(
+                    f"background-color: rgb({r}, {g}, {b}); border: 1px solid gray;"
+                )
+        except Exception as e:
+            print(f"更新颜色按钮失败: {e}")
+    
+    def closeEvent(self, event):
+        """窗口关闭事件"""
+        # 保存当前设置
+        self.save_last_settings()
+        event.accept()
